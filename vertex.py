@@ -18,26 +18,23 @@ import json
 import os
 import secrets
 import time
-import datetime
-import uvicorn
-
 # FastAPI
 from typing import List, Optional
-from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from sse_starlette.sse import EventSourceResponse
 
 # Google Vertex AI
 import google.auth
-from google.cloud import aiplatform
-
 # LangChain
 import langchain
-from langchain_community.chat_models import ChatVertexAI
-from langchain.chains import ConversationChain
-from langchain.memory import ConversationBufferMemory
+import uvicorn
+# Anthropic
+from anthropic import AnthropicVertex
+from anthropic.types import MessageParam
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from google.cloud import aiplatform
+from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
 
 # Google authentication
 credentials, project_id = google.auth.default()
@@ -59,7 +56,7 @@ print(f"LLM chat model name: {model_name}")
 default_max_output_tokens = os.environ.get("MAX_OUTPUT_TOKENS", "512")
 # Sampling temperature,
 # it controls the degree of randomness in token selection
-default_temperature = os.environ.get("TEMPERATURE", "0.2")
+default_temperature = os.environ.get("TEMPERATURE", "0.5")
 # How the model selects tokens for output, the next token is selected from
 default_top_k = os.environ.get("TOP_K", "40")
 # Tokens are selected from most probable to least until the sum of their
@@ -99,6 +96,8 @@ aiplatform.init(
     location=location,
 )
 
+vertex_client = AnthropicVertex(region=location, project_id=project_id)
+
 
 class Message(BaseModel):
     role: str
@@ -122,77 +121,14 @@ def read_root():
     }
 
 
-@app.get("/v1/models")
-def get_models():
-    """
-    Lists the currently available models,
-    and provides basic information about each one
-    such as the owner and availability.
-
-    https://platform.openai.com/docs/api-reference/models/list
-    """
-    id = f"modelperm-{secrets.token_hex(12)}"
-    ts = int(time.time())
-    models = {"data": [], "object": "list"}
-    models['data'].append({
-        "id": "gpt-3.5-turbo",
-        "object": "model",
-        "created": ts,
-        "owned_by": "openai",
-        "permission": [
-            {
-                "id": id,
-                "created": ts,
-                "object": "model_permission",
-                "allow_create_engine": False,
-                "allow_sampling": True,
-                "allow_logprobs": True,
-                "allow_search_indices": False,
-                "allow_view": True,
-                "allow_fine_tuning": False,
-                "organization": "*",
-                "group": None,
-                "is_blocking": False
-            }
-        ],
-        "root": "gpt-3.5-turbo",
-        "parent": None,
-    })
-    models['data'].append({
-        "id": "text-embedding-ada-002",
-        "object": "model",
-        "created": ts,
-        "owned_by": "openai-internal",
-        "permission": [
-            {
-                "id": id,
-                "created": ts,
-                "object": "model_permission",
-                "allow_create_engine": False,
-                "allow_sampling": True,
-                "allow_logprobs": True,
-                "allow_search_indices": True,
-                "allow_view": True,
-                "allow_fine_tuning": False,
-                "organization": "*",
-                "group": None,
-                "is_blocking": False
-            }
-        ],
-        "root": "text-embedding-ada-002",
-        "parent": None
-    })
-    return models
-
-
-def generate_stream_response_start():
+def generate_stream_response_start(model: str):
     ts = int(time.time())
     id = f"cmpl-{secrets.token_hex(12)}"
     return {
         "id": id,
-        "created": ts,
         "object": "chat.completion.chunk",
-        "model": "gpt-3.5-turbo",
+        "created": ts,
+        "model": model,
         "choices": [{
             "delta": {"role": "assistant"},
             "index": 0,
@@ -201,30 +137,30 @@ def generate_stream_response_start():
     }
 
 
-def generate_stream_response(content: str):
+def generate_stream_response(vertex_response, model):
     ts = int(time.time())
     id = f"cmpl-{secrets.token_hex(12)}"
     return {
         "id": id,
-        "created": ts,
         "object": "chat.completion.chunk",
-        "model": "gpt-3.5-turbo",
+        "created": ts,
+        "model": model,
         "choices": [{
-            "delta": {"content": content},
+            "delta": {"content": vertex_response.content[0].text},
             "index": 0,
             "finish_reason": None
         }]
     }
 
 
-def generate_stream_response_stop():
+def generate_stream_response_stop(model: str):
     ts = int(time.time())
     id = f"cmpl-{secrets.token_hex(12)}"
     return {
         "id": id,
         "created": ts,
         "object": "chat.completion.chunk",
-        "model": "gpt-3.5-turbo",
+        "model": model,
         "choices": [{
             "delta": {},
             "index": 0,
@@ -233,24 +169,77 @@ def generate_stream_response_stop():
     }
 
 
-def generate_response(content: str):
-    ts = int(time.time())
+def generate_response(vertex_response):
     id = f"cmpl-{secrets.token_hex(12)}"
+    ts = int(time.time())
     return {
         "id": id,
-        "created": ts,
         "object": "chat.completion",
-        "model": "gpt-3.5-turbo",
+        "created": ts,
+        "model": vertex_response.model,
         "usage": {
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "total_tokens": 0,
         },
         "choices": [{
-            "message": {"role": "assistant", "content": content},
-            "finish_reason": "stop", "index": 0}
-        ]
+            "index": 0,
+            "message": {"role": "assistant", "content": vertex_response.content[0].text},
+            "finish_reason": "stop"
+        }]
     }
+
+
+def get_location_by(model: str):
+    # @param ["claude-3-sonnet@20240229", "claude-3-haiku@20240307", "claude-3-opus@20240229"]
+    # model = "claude-3-sonnet@20240229"
+    if model == "claude-3-sonnet@20240229":
+        available_regions = ["us-central1", "asia-southeast1"]
+    elif model == "claude-3-haiku@20240307":
+        available_regions = ["us-central1", "europe-west4"]
+    else:
+        available_regions = ["us-east5"]
+    return available_regions[0]
+
+
+def construct_vertex_message(model: str, messages: List[Message], max_tokens: int, temperature: float = 0.5):
+    message_params: list[MessageParam] = []
+    system_prompt = ""
+    for message in messages:
+        if message.role == "system":
+            system_prompt = message.content
+        else:
+            message_params.append({
+                "role": message.role,
+                "content": message.content
+            })
+    response = vertex_client.messages.create(
+        max_tokens=max_tokens,
+        messages=message_params,
+        model=model,
+        system=system_prompt,
+        temperature=temperature
+    )
+    return response
+
+
+def construct_vertex_message_stream(model: str, messages: List[Message], max_tokens: int, temperature: float = 0.5):
+    message_params: list[MessageParam] = []
+    system_prompt = ""
+    for message in messages:
+        if message.role == "system":
+            system_prompt = message.content
+        else:
+            message_params.append({
+                "role": message.role,
+                "content": message.content
+            })
+    return vertex_client.messages.stream(
+        max_tokens=max_tokens,
+        messages=message_params,
+        model=model,
+        system=system_prompt
+    )
 
 
 @app.post("/v1/chat/completions")
@@ -269,103 +258,54 @@ async def chat_completions(body: ChatBody, request: Request):
         print(f"body = {body}")
 
     # Get user question
-    question = body.messages[-1]
-    if question.role == 'user' or question.role == 'assistant':
-        question = question.content
-    else:
+    if not len(body.messages):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No Question Found")
 
     # Overwrite defaults
+    # model="claude-3-opus@20240229",
+    model_name = body.model
     temperature = float(body.temperature or default_temperature)
-    top_k = int(default_top_k)
-    top_p = float(body.top_p or default_top_p)
     max_output_tokens = int(body.max_tokens or default_max_output_tokens)
-    # Note: Max output token:
-    # - gemini-pro: 8192
-    #   https://cloud.google.com/vertex-ai/docs/generative-ai/model-reference/gemini
-    # - chat-bison: 1024
-    # - codechat-bison: 2048
-    # - ..-32k: The total amount of input and output tokens adds up to 32k.
-    #           For example, if you specify 16k of input tokens,
-    #           then you can receive up to 16k of output tokens.
-    if model_name == 'codechat-bison':
-        if max_output_tokens > 2048:
-            max_output_tokens = 2048
-    elif model_name.find("gemini-pro"):
-        if max_output_tokens > 8192:
-            max_output_tokens = 8192
-    elif model_name.find("32k"):
-        if max_output_tokens > 16000:
-            max_output_tokens = 16000
-    elif max_output_tokens > 1024:
-        max_output_tokens = 1024
-
-    # Wrapper around Vertex AI large language models
-    llm = ChatVertexAI(
-        model_name=model_name,
-        temperature=temperature,
-        top_k=top_k,
-        top_p=top_p,
-        max_output_tokens=max_output_tokens
-    )
-
-    # Buffer for storing conversation memory
-    # Note: Max input token:
-    # - chat-bison: 4096
-    # - codechat-bison: 6144
-    memory = ConversationBufferMemory(
-        memory_key="history",
-        max_token_limit=2048,
-        return_messages=True
-    )
-    # Today
-    memory.chat_memory.add_user_message("What day is today?")
-    memory.chat_memory.add_ai_message(
-        datetime.date.today().strftime("Today is %A, %B %d, %Y")
-    )
-    # Add history
-    for message in body.messages:
-        # if message.role == 'system':
-        #     system_prompt = message.content
-        if message.role == 'user':
-            memory.chat_memory.add_user_message(message.content)
-        elif message.role == 'assistant':
-            memory.chat_memory.add_ai_message(message.content)
-
-    # Get Vertex AI output
-    conversation = ConversationChain(
-        llm=llm,
-        memory=memory,
-    )
-    answer = conversation.predict(input=question)
 
     if debug:
         print(f"stream = {body.stream}")
         print(f"model = {body.model}")
         print(f"temperature = {temperature}")
-        print(f"top_k = {top_k}")
-        print(f"top_p = {top_p}")
         print(f"max_output_tokens = {max_output_tokens}")
-        print(f"history = {memory.buffer}")
 
-    # Return output
+    # Wrapper around Vertex AI large language models
     if body.stream:
+        vert_response = construct_vertex_message_stream(
+            model=model_name,
+            messages=body.messages,
+            max_tokens=max_output_tokens,
+            temperature=temperature
+        )
+
         async def stream():
             yield json.dumps(
-                generate_stream_response_start(),
+                generate_stream_response_start(model_name),
                 ensure_ascii=False
             )
             yield json.dumps(
-                generate_stream_response(answer),
+                generate_stream_response(vert_response, model_name),
                 ensure_ascii=False
             )
             yield json.dumps(
-                generate_stream_response_stop(),
+                generate_stream_response_stop(model_name),
                 ensure_ascii=False
             )
+
         return EventSourceResponse(stream(), ping=10000)
     else:
-        return JSONResponse(content=generate_response(answer))
+        vert_response = construct_vertex_message(
+            model=model_name,
+            messages=body.messages,
+            max_tokens=max_output_tokens,
+            temperature=temperature
+        )
+        return JSONResponse(content=generate_response(vert_response))
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host=host, port=port)
