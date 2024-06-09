@@ -174,9 +174,6 @@ def generate_stream_response_start(model: str):
 
 
 def generate_stream_response(chunk, model):
-    print("=== Chunk Response ===")
-    print(type(chunk))
-    print(chunk)
     ts = int(time.time())
     id = f"cmpl-{secrets.token_hex(12)}"
     return {
@@ -245,8 +242,8 @@ def construct_vertex_message(model: str, messages: List[Message], max_tokens: in
     message_params: list[MessageParam] = []
     system_prompt = ""
     for message in messages:
-        role = message.get("role")
-        content = message.get("content")
+        role = message.role
+        content = message.content
         if role == "system":
             system_prompt = content
         else:
@@ -271,8 +268,8 @@ def construct_vertex_message_stream(model: str, messages: List[Message], max_tok
     message_params: list[MessageParam] = []
     system_prompt = ""
     for message in messages:
-        role = message.get("role")
-        content = message.get("content")
+        role = message.role
+        content = message.content
         if role == "system":
             system_prompt = content
         else:
@@ -284,7 +281,7 @@ def construct_vertex_message_stream(model: str, messages: List[Message], max_tok
         max_tokens=max_tokens,
         messages=message_params,
         model=model,
-        # system=system_prompt
+        system=system_prompt
     )
 
 
@@ -318,6 +315,7 @@ async def chat_completions(body: ChatBody, request: Request):
         print(f"model = {body.model}")
         print(f"temperature = {temperature}")
         print(f"max_output_tokens = {max_output_tokens}")
+        print(f"messages = {body.messages}")
 
     # Wrapper around Vertex AI large language models
     if body.stream:
