@@ -24,7 +24,6 @@ from typing import List, Optional
 # Google Vertex AI
 import google.auth
 # LangChain
-import langchain
 import uvicorn
 # Anthropic
 from anthropic import AnthropicVertex
@@ -46,12 +45,10 @@ debug = os.environ.get("DEBUG", False)
 print(f"Endpoint: http://{host}:{port}/")
 # Google Cloud
 project = os.environ.get("GOOGLE_CLOUD_PROJECT_ID", project_id)
-location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-east5")
 print(f"Google Cloud project identifier: {project}")
 print(f"Google Cloud location: {location}")
 # LLM chat model name to use
-model_name = os.environ.get("MODEL_NAME", "chat-bison")
-print(f"LLM chat model name: {model_name}")
 # Token limit determines the maximum amount of text output from one prompt
 default_max_output_tokens = os.environ.get("MAX_OUTPUT_TOKENS", "512")
 # Sampling temperature,
@@ -115,8 +112,47 @@ class ChatBody(BaseModel):
 
 @app.get("/")
 def read_root():
+    max_tokens: int = 1024
+    model: str = "claude-3-opus@20240229"
+    messages = [
+        {
+            "role": "user",
+            "content": "Send me a recipe for banana bread.",
+        }
+    ]
+
+    # vert_response = construct_vertex_message_stream(
+    #     model=model,
+    #     messages=messages,
+    #     max_tokens=max_tokens,
+    # )
+    #
+    # async def stream():
+    #     yield json.dumps(
+    #         generate_stream_response_start(model),
+    #         ensure_ascii=False
+    #     )
+    #     with vert_response as rsp:
+    #         for chunk in rsp.text_stream:
+    #             yield json.dumps(
+    #                 generate_stream_response(chunk, model),
+    #                 ensure_ascii=False
+    #             )
+    #     yield json.dumps(
+    #         generate_stream_response_stop(model),
+    #         ensure_ascii=False
+    #     )
+    #
+    # return EventSourceResponse(stream(), ping=10000)
+
+    # vert_response = construct_vertex_message(
+    #     model=model,
+    #     messages=messages,
+    #     max_tokens=max_tokens,
+    # )
+    # return JSONResponse(content=generate_response(vert_response))
+
     return {
-        "LangChain": langchain.__version__,
         "Vertex AI": aiplatform.__version__
     }
 
@@ -137,7 +173,10 @@ def generate_stream_response_start(model: str):
     }
 
 
-def generate_stream_response(vertex_response, model):
+def generate_stream_response(chunk, model):
+    print("=== Chunk Response ===")
+    print(type(chunk))
+    print(chunk)
     ts = int(time.time())
     id = f"cmpl-{secrets.token_hex(12)}"
     return {
@@ -146,7 +185,7 @@ def generate_stream_response(vertex_response, model):
         "created": ts,
         "model": model,
         "choices": [{
-            "delta": {"content": vertex_response.content[0].text},
+            "delta": {"content": chunk},
             "index": 0,
             "finish_reason": None
         }]
@@ -206,12 +245,14 @@ def construct_vertex_message(model: str, messages: List[Message], max_tokens: in
     message_params: list[MessageParam] = []
     system_prompt = ""
     for message in messages:
-        if message.role == "system":
-            system_prompt = message.content
+        role = message.get("role")
+        content = message.get("content")
+        if role == "system":
+            system_prompt = content
         else:
             message_params.append({
-                "role": message.role,
-                "content": message.content
+                "role": role,
+                "content": content
             })
     response = vertex_client.messages.create(
         max_tokens=max_tokens,
@@ -220,6 +261,9 @@ def construct_vertex_message(model: str, messages: List[Message], max_tokens: in
         system=system_prompt,
         temperature=temperature
     )
+    print("=== Response ===")
+    print(type(response))
+    print(response)
     return response
 
 
@@ -227,18 +271,20 @@ def construct_vertex_message_stream(model: str, messages: List[Message], max_tok
     message_params: list[MessageParam] = []
     system_prompt = ""
     for message in messages:
-        if message.role == "system":
-            system_prompt = message.content
+        role = message.get("role")
+        content = message.get("content")
+        if role == "system":
+            system_prompt = content
         else:
             message_params.append({
-                "role": message.role,
-                "content": message.content
+                "role": role,
+                "content": content
             })
     return vertex_client.messages.stream(
         max_tokens=max_tokens,
         messages=message_params,
         model=model,
-        system=system_prompt
+        # system=system_prompt
     )
 
 
@@ -287,10 +333,12 @@ async def chat_completions(body: ChatBody, request: Request):
                 generate_stream_response_start(model_name),
                 ensure_ascii=False
             )
-            yield json.dumps(
-                generate_stream_response(vert_response, model_name),
-                ensure_ascii=False
-            )
+            with vert_response as rsp:
+                for chunk in rsp.text_stream:
+                    yield json.dumps(
+                        generate_stream_response(chunk, model_name),
+                        ensure_ascii=False
+                    )
             yield json.dumps(
                 generate_stream_response_stop(model_name),
                 ensure_ascii=False
