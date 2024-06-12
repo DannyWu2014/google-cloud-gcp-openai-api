@@ -42,6 +42,7 @@ credentials, project_id = google.auth.default()
 host = os.environ.get("HOST", "0.0.0.0")
 port = int(os.environ.get("PORT", 8000))
 debug = os.environ.get("DEBUG", False)
+simple_debug = os.environ.get("SIMPLE_DEBUG", False)
 print(f"Endpoint: http://{host}:{port}/")
 # Google Cloud
 project = os.environ.get("GOOGLE_CLOUD_PROJECT_ID", project_id)
@@ -50,7 +51,7 @@ print(f"Google Cloud project identifier: {project}")
 print(f"Google Cloud location: {location}")
 # LLM chat model name to use
 # Token limit determines the maximum amount of text output from one prompt
-default_max_output_tokens = os.environ.get("MAX_OUTPUT_TOKENS", "512")
+default_max_output_tokens = os.environ.get("MAX_OUTPUT_TOKENS", "4096")
 # Sampling temperature,
 # it controls the degree of randomness in token selection
 default_temperature = os.environ.get("TEMPERATURE", "0.5")
@@ -251,6 +252,8 @@ def construct_vertex_message(model: str, messages: List[Message], max_tokens: in
                 "role": role,
                 "content": content
             })
+    if simple_debug:
+        print(f"system_prompt = {system_prompt}")
     response = vertex_client.messages.create(
         max_tokens=max_tokens,
         messages=message_params,
@@ -258,9 +261,10 @@ def construct_vertex_message(model: str, messages: List[Message], max_tokens: in
         system=system_prompt,
         temperature=temperature
     )
-    print("=== Response ===")
-    print(type(response))
-    print(response)
+    if debug:
+        print("=== Response ===")
+        print(type(response))
+        print(response)
     return response
 
 
@@ -277,6 +281,8 @@ def construct_vertex_message_stream(model: str, messages: List[Message], max_tok
                 "role": role,
                 "content": content
             })
+    if simple_debug:
+        print(f"system_prompt = {system_prompt}")
     return vertex_client.messages.stream(
         max_tokens=max_tokens,
         messages=message_params,
@@ -316,6 +322,9 @@ async def chat_completions(body: ChatBody, request: Request):
         print(f"temperature = {temperature}")
         print(f"max_output_tokens = {max_output_tokens}")
         print(f"messages = {body.messages}")
+
+    if simple_debug:
+        print(f"max_output_tokens = {max_output_tokens}")
 
     # Wrapper around Vertex AI large language models
     if body.stream:
