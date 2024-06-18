@@ -51,7 +51,7 @@ print(f"Google Cloud project identifier: {project}")
 print(f"Google Cloud location: {location}")
 # LLM chat model name to use
 # Token limit determines the maximum amount of text output from one prompt
-default_max_output_tokens = os.environ.get("MAX_OUTPUT_TOKENS", "4096")
+default_max_output_tokens = os.environ.get("MAX_OUTPUT_TOKENS", "81920")
 # Sampling temperature,
 # it controls the degree of randomness in token selection
 default_temperature = os.environ.get("TEMPERATURE", "0.5")
