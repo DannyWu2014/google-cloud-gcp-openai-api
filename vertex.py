@@ -111,9 +111,10 @@ class ChatBody(BaseModel):
     top_p: Optional[float]
 
 
-@app.get("/")
+# @app.get("/")
 def read_root():
-    max_tokens: int = 1024
+    # max is 4096
+    max_tokens: int = 4096
     model: str = "claude-3-opus@20240229"
     messages = [
         {
@@ -146,12 +147,12 @@ def read_root():
     #
     # return EventSourceResponse(stream(), ping=10000)
 
-    # vert_response = construct_vertex_message(
-    #     model=model,
-    #     messages=messages,
-    #     max_tokens=max_tokens,
-    # )
-    # return JSONResponse(content=generate_response(vert_response))
+    vert_response = construct_vertex_message(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+    )
+    return JSONResponse(content=generate_response(vert_response))
 
     return {
         "Vertex AI": aiplatform.__version__
@@ -243,8 +244,8 @@ def construct_vertex_message(model: str, messages: List[Message], max_tokens: in
     message_params: list[MessageParam] = []
     system_prompt = ""
     for message in messages:
-        role = message.role
-        content = message.content
+        role = message["role"]
+        content = message["content"]
         if role == "system":
             system_prompt = content
         else:
@@ -272,8 +273,8 @@ def construct_vertex_message_stream(model: str, messages: List[Message], max_tok
     message_params: list[MessageParam] = []
     system_prompt = ""
     for message in messages:
-        role = message.role
-        content = message.content
+        role = message["role"]
+        content = message["content"]
         if role == "system":
             system_prompt = content
         else:
@@ -363,4 +364,5 @@ async def chat_completions(body: ChatBody, request: Request):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host=host, port=port)
+    # uvicorn.run(app, host=host, port=port)
+    print(read_root())
