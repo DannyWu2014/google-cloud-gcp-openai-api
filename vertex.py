@@ -51,7 +51,7 @@ print(f"Google Cloud project identifier: {project}")
 print(f"Google Cloud location: {location}")
 # LLM chat model name to use
 # Token limit determines the maximum amount of text output from one prompt
-default_max_output_tokens = os.environ.get("MAX_OUTPUT_TOKENS", "81920")
+default_max_output_tokens = os.environ.get("MAX_OUTPUT_TOKENS", "4096")
 # Sampling temperature,
 # it controls the degree of randomness in token selection
 default_temperature = os.environ.get("TEMPERATURE", "0.5")
@@ -315,6 +315,8 @@ async def chat_completions(body: ChatBody, request: Request):
     model_name = body.model
     temperature = float(body.temperature or default_temperature)
     max_output_tokens = int(body.max_tokens or default_max_output_tokens)
+    if max_output_tokens > 4096:
+        max_output_tokens = 4096
 
     if debug:
         print(f"stream = {body.stream}")
