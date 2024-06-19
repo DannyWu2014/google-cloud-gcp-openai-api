@@ -339,3 +339,65 @@ Awesome! Follow these steps to have it accepted.
 ## License
 
 All files in this repository are under the [Apache License, Version 2.0](LICENSE) unless noted otherwise.
+
+Here's a Python script that converts the Google Vertex API to the OpenAI API:\n\n
+
+```python\n
+import openai
+
+def convert_vertex_to_openai(vertex_response):
+    openai_response = {
+        'id': vertex_response['name'],
+        'object': 'text_completion',
+        'created': vertex_response['createTime'],
+        'model': vertex_response['model'],
+        'choices': [
+            {
+                'text': vertex_response['predictions'][0]['content'],
+                'index': 0,
+                'logprobs': None,
+                'finish_reason': 'stop'
+            }
+        ],
+        'usage': {
+            'prompt_tokens': vertex_response['predictions'][0]['input_token_count'],
+            'completion_tokens': vertex_response['predictions'][0]['output_token_count'],
+            'total_tokens': vertex_response['predictions'][0]['input_token_count'] + vertex_response['predictions'][0]['output_token_count']
+        }
+    }
+    return openai_response
+
+def generate_text(prompt, model, max_tokens):
+    vertex_response = vertex_api.predict(
+        instances=[prompt],
+        parameters={
+            'max_output_tokens': max_tokens,
+            'temperature': 0.7,
+            'top_p': 1,
+            'top_k': 40
+        },
+        model=model
+    )
+    openai_response = convert_vertex_to_openai(vertex_response)
+    return openai_response
+
+# Example usage
+prompt = \"Once upon a time\"
+model = \"text-davinci-002\"
+max_tokens = 50
+
+openai_response = generate_text(prompt, model, max_tokens)
+print(openai_response)
+```
+
+In this script, we define two main functions:
+
+1. `convert_vertex_to_openai(vertex_response)`: This function takes a response from the Google Vertex API and converts it to the format expected by the OpenAI API. It maps the relevant fields from the Vertex API response to the corresponding fields in the OpenAI API response format.
+
+2. `generate_text(prompt, model, max_tokens)`: This function is used to generate text using the Google Vertex API. It takes the `prompt`, `model`, and `max_tokens` as parameters. It calls the `vertex_api.predict()` method (assuming you have the Vertex API client library set up) with the provided parameters to generate text. It then converts the Vertex API response to the OpenAI API format using the `convert_vertex_to_openai()` function and returns the converted response.
+
+Please note that you need to have the Google Vertex API client library installed and properly configured in your Python environment for this script to work. You also need to replace `vertex_api.predict()` with the actual method provided by the Vertex API client library for text generation.
+
+The script provides an example usage where it generates text using the prompt \"Once upon a time\" with the \"text-davinci-002\" model and a maximum of 50 tokens. You can modify the `prompt`, `model`, and `max_tokens` variables according to your requirements.
+
+Keep in mind that this is a simplified example and may need to be adapted based on the specific requirements and usage of the Google Vertex API and the OpenAI API in your project.
